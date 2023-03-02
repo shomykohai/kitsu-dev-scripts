@@ -3,6 +3,7 @@ import asyncio
 import asyncpg
 import enum
 import json
+import traceback
 import typing
 
 from colorama import Fore, Style
@@ -218,7 +219,8 @@ async def run():
         )
         print("@ CONNECTED TO DB")
     except Exception as e:
-        print("Could not connect to DB.", e)
+        print("Could not connect to DB.")
+	traceback.print_exc()
         return
     try:
         kitsu = askitsu.Client(cache_expiration=0)
