@@ -217,8 +217,8 @@ async def run():
             host=HOST,
         )
         print("@ CONNECTED TO DB")
-    except:
-        print("Could not connect to DB.")
+    except Exception as e:
+        print("Could not connect to DB.", e)
         return
     try:
         kitsu = askitsu.Client(cache_expiration=0)
