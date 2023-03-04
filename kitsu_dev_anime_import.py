@@ -54,7 +54,7 @@ class CharacterRole(enum.Enum):
 
 gqlquery = """
 query anime($cursor: String){
-  anime(first: 10, after: $cursor){
+  anime(first: 20, after: $cursor){
     edges{
       cursor
     }
@@ -232,9 +232,12 @@ query_character = """
     updated_at,
     slug,
     description,
-    canonical_name
+    canonical_name,
+    primary_media_id,
+    primary_media_type,
+    names
   )
-  VALUES ($1, $2, $3, $4, $5, $6, $7)
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 """
 
 query_categories = """
@@ -273,7 +276,13 @@ async def get_anime(kitsu_client: askitsu.Client):
         for anime_data in animes
     ]
     for i in anime_gen:
+        #Filter any data that may cause problems
+        #or that is not useful
         if i.description is None:
+            anime_gen.remove(i)
+        elif i._attributes["ageRating"] is None:
+            anime_gen.remove(i)
+        elif i.ended_at is None or i.started_at is None:
             anime_gen.remove(i)
     anime += anime_gen
     print(f"Fetched {Fore.RED}{len(anime_gen)}{Style.RESET_ALL} anime.")
@@ -315,6 +324,11 @@ async def convert_media_images(image_data: dict) -> typing.Optional[dict]:
 async def convert_to_datetime(timestamp: str) -> datetime:
     return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
 
+
+async def match_canonical_title(titles: dict) -> str:
+    if "en_jp" in titles:
+      return "en_jp"
+    return next(iter(titles))
 
 async def run():
     global id
@@ -365,7 +379,7 @@ async def run():
             print(f"Skip category: {Fore.RED}{category['slug']}{Style.RESET_ALL}.", e)
 
     # Fetch a bunch of anime
-    for _ in range(2):
+    for _ in range(3):
         await get_anime(kitsu_client=kitsu)
 
     print(f"Total fetched anime: {Fore.RED}{len(anime)}{Style.RESET_ALL}.")
@@ -374,8 +388,14 @@ async def run():
     for media in anime:
         try:
             # Convert the data
+            characters_added: bool = False
+            
+
             poster_image = await convert_media_images(media._attributes["posterImage"])
             cover_image = await convert_media_images(media._attributes["bannerImage"])
+            age_rating = media._attributes["ageRating"]
+            if age_rating is not None:
+                age_rating = AgeRating[media.age_rating].value
             titles = ""
             for key, value in media._titles.items():
                 if value:
@@ -386,7 +406,7 @@ async def run():
                 query_anime,
                 id,
                 media.slug,
-                AgeRating[media.age_rating].value,
+                age_rating,
                 media.episode_count,
                 media.episode_length,
                 json.dumps({"en": media.description}),
@@ -400,7 +420,7 @@ async def run():
                 media.started_at,
                 media.ended_at,
                 titles,
-                "en_jp",
+                await match_canonical_title(media._titles),
                 media.popularity_rank,
                 media.rating_rank,
                 media._attributes.get("favoritesCount", 0),
@@ -424,10 +444,16 @@ async def run():
             # Execute the query - Character
             for characters in media._attributes["characters"]["nodes"]:
                 try:
+                    names = ""
+                    names_dict: dict = characters["character"]["names"]["localized"]
+                    for key, value in names_dict.items():
+                      if value:
+                          format_str = '"{0}"=>"{1}",'.format(key, value)
+                          names += format_str
                     await db.execute(
                         query_character,
                         character_id,
-                        characters["character"]["slug"],
+                        characters["character"]["names"]["canonical"],
                         datetime.strptime(
                             characters["character"]["createdAt"], "%Y-%m-%dT%H:%M:%SZ"
                         ),
@@ -436,7 +462,10 @@ async def run():
                         ),
                         characters["character"]["slug"],
                         json.dumps(characters["character"]["description"]),
-                        characters["character"]["names"]["canonical"],
+                        await match_canonical_title(names_dict),
+                        id,
+                        "anime",
+                        json.dumps(names)
                     )
                     await db.execute(
                         query_anime_character,
@@ -451,17 +480,21 @@ async def run():
                         ),
                     )
                     character_id += 1
+                    characters_added = True
                 except:
                     pass
 
             id += 1
             imports += 1
             print(
-                f"{Fore.GREEN}Insert into db: {Fore.WHITE}{media.id}{Fore.GREEN} as {Fore.WHITE}{id}{Style.RESET_ALL}"
+                f"{Fore.GREEN}IMPORT: {Fore.WHITE}Insert into db: {Fore.GREEN}{media.slug}{Style.RESET_ALL} " \
+                f"as {Fore.CYAN}{id}{Style.RESET_ALL} " \
+                f"| Characters: {Fore.CYAN if characters_added else Fore.LIGHTRED_EX}{characters_added}{Style.RESET_ALL}"
             )
         except Exception as e:
             # If any error occurs when converting the anime data, we skip the anime
-            print(f"{Fore.RED}Skip: {Fore.WHITE}{media.id}{Style.RESET_ALL}: {e}")
+            print(f"{Fore.RED}SKIP: {Fore.WHITE}{media.id}{Style.RESET_ALL}: {e}")
+            print(media._attributes)
     anime.remove(media)
 
     # Close DB and askitsu connections
@@ -471,3 +504,4 @@ async def run():
 
 
 asyncio.run(run())
+
