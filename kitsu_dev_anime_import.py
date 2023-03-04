@@ -54,7 +54,7 @@ class CharacterRole(enum.Enum):
 
 gqlquery = """
 query anime($cursor: String){
-  anime(first: 100, after: $cursor){
+  anime(first: 10, after: $cursor){
     edges{
       cursor
     }
@@ -112,11 +112,66 @@ query anime($cursor: String){
             id
           }
         }
+
+      	posterImage{
+          blurhash
+          original{
+            name
+            url
+            width
+            height
+          }
+          views{
+            name
+            url
+            width
+            height
+          }
+        }
+
+        bannerImage{
+          blurhash
+          original{
+            name
+            url
+            width
+            height
+          }
+          views{
+            name
+            url
+            width
+            height
+          }     
+        }
       
     }
   }
 }
 """
+
+categories_gqlquery = """
+query {
+  categories(first: 243){
+    totalCount
+    nodes{
+      createdAt
+      updatedAt
+      slug
+      children(first: 2000){
+        totalCount
+      }
+      parent{
+        id
+      }
+      isNsfw
+      description
+     	title 
+    }
+  }
+}
+"""
+
 
 query_anime = """INSERT INTO public.anime(
     id,
@@ -144,9 +199,11 @@ query_anime = """INSERT INTO public.anime(
     total_length,
     origin_languages,
     origin_countries,
-    original_locale
+    original_locale,
+    poster_image_data,
+    cover_image_data
   )
-	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26);"""
+	VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28);"""
 
 query_genres = """
   INSERT INTO public.anime_genres(
@@ -180,6 +237,23 @@ query_character = """
   VALUES ($1, $2, $3, $4, $5, $6, $7)
 """
 
+query_categories = """
+  INSERT INTO public.categories(
+    id,
+    title,
+    slug,
+    parent_id,
+    nsfw,
+    created_at,
+    updated_at,
+    child_count,
+    description
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+
+
+"""
+
 imports = 0
 id = 0
 next_cursor = ""
@@ -205,6 +279,43 @@ async def get_anime(kitsu_client: askitsu.Client):
     print(f"Fetched {Fore.RED}{len(anime_gen)}{Style.RESET_ALL} anime.")
 
 
+async def convert_media_images(image_data: dict) -> typing.Optional[dict]:
+    if not image_data:
+        return None
+    id = str(image_data["original"]["url"])[23::]
+    # print(id)
+
+    derivates_name = [image_size["name"] for image_size in image_data["views"]]
+    derivates = {
+        name: {
+            "id": str(image["url"])[23::],
+            "storage": "store",
+            "metadata": {
+                "width": image["width"],
+                "height": image["height"],
+                # "blurhash": image["blurhash"]
+            },
+        }
+        for name, image in zip(derivates_name, image_data["views"])
+    }
+    new_dict = {
+        "id": id,
+        "storage": "store",
+        "metadata": {
+            "width": image_data["original"]["width"],
+            "height": image_data["original"]["height"],
+            "blurhash": image_data["blurhash"],
+        },
+        "derivates": derivates,
+    }
+    # print(new_dict)
+    return new_dict
+
+
+async def convert_to_datetime(timestamp: str) -> datetime:
+    return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
+
+
 async def run():
     global id
     global imports
@@ -213,14 +324,12 @@ async def run():
     # Initialize
     try:
         db = await asyncpg.create_pool(
-            database=KITSU_DB_NAME,
-            user=KITSU_DB_USER,
-            host=HOST,
+            database=KITSU_DB_NAME, user=KITSU_DB_USER, host=HOST, port="5432"
         )
         print("@ CONNECTED TO DB")
     except Exception as e:
         print("Could not connect to DB.")
-	traceback.print_exc()
+        traceback.print_exc()
         return
     try:
         kitsu = askitsu.Client(cache_expiration=0)
@@ -229,15 +338,44 @@ async def run():
         print("Could not initialize askitsu client.")
         return
 
+    # Fetch categories
+    categories = await kitsu.http.post_data({"query": categories_gqlquery})
+    print(
+        f"Total fetched categories: {Fore.RED}{categories['data']['categories']['totalCount']}{Style.RESET_ALL}."
+    )
+    for id, category in enumerate(categories["data"]["categories"]["nodes"]):
+        try:
+            parent_id = category["parent"]
+            if parent_id is not None:
+                parent_id = int(parent_id.get("id", None))
+            await db.execute(
+                query_categories,
+                id,
+                category["title"].get("en", ""),
+                category["slug"],
+                parent_id,
+                category["isNsfw"],
+                await convert_to_datetime(category["createdAt"]),
+                await convert_to_datetime(category["updatedAt"]),
+                category["children"]["totalCount"],
+                json.dumps(category["description"].get("en", "")),
+            )
+            print(f"Add category: {Fore.GREEN}{category['slug']}{Style.RESET_ALL}.")
+        except Exception as e:
+            print(f"Skip category: {Fore.RED}{category['slug']}{Style.RESET_ALL}.", e)
+
     # Fetch a bunch of anime
-    for _ in range(40):
+    for _ in range(2):
         await get_anime(kitsu_client=kitsu)
 
     print(f"Total fetched anime: {Fore.RED}{len(anime)}{Style.RESET_ALL}.")
+
     # Add the data to the database
     for media in anime:
         try:
             # Convert the data
+            poster_image = await convert_media_images(media._attributes["posterImage"])
+            cover_image = await convert_media_images(media._attributes["bannerImage"])
             titles = ""
             for key, value in media._titles.items():
                 if value:
@@ -251,7 +389,7 @@ async def run():
                 AgeRating[media.age_rating].value,
                 media.episode_count,
                 media.episode_length,
-                json.dumps(media.description),
+                json.dumps({"en": media.description}),
                 media.yt_id,
                 media.created_at,
                 media.updated_at,
@@ -262,7 +400,7 @@ async def run():
                 media.started_at,
                 media.ended_at,
                 titles,
-                media.canonical_title,
+                "en_jp",
                 media.popularity_rank,
                 media.rating_rank,
                 media._attributes.get("favoritesCount", 0),
@@ -272,6 +410,8 @@ async def run():
                 media._attributes.get("origin_languages", None),
                 media._attributes.get("origin_countries", None),
                 media._attributes.get("original_locale", ""),
+                json.dumps(poster_image),
+                json.dumps(cover_image),
             )
 
             # Execute the query - Anime Genres
