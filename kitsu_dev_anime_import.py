@@ -96,6 +96,21 @@ query anime($cursor: String){
             updatedAt
             character{
               id
+              image{
+                blurhash
+                original{
+                  name
+                  url
+                  width
+                  height
+                }
+                views{
+                  name
+                  url
+                  width
+                  height
+                }
+              }
               names{
                 localized
                 canonical
@@ -224,6 +239,18 @@ query_anime_character = """
   VALUES ($1, $2, $3, $4, $5)
 """
 
+query_media_character = """
+  INSERT INTO public.media_characters (
+    media_id,
+    media_type,
+    character_id,
+    role,
+    created_at,
+    updated_at
+  )
+  VALUES ($1, $2, $3, $4, $5, $6)
+"""
+
 query_character = """
   INSERT INTO public.characters(
     id,
@@ -235,9 +262,27 @@ query_character = """
     canonical_name,
     primary_media_id,
     primary_media_type,
-    names
+    names,
+    image_data
+  )
+  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+"""
+
+query_casting = """
+  INSERT INTO public.castings(
+    id,
+    media_id,
+    character_id,
+    role,
+    created_at,
+    updated_at,
+    voice_actor,
+    featured,
+    language,
+    media_type
   )
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+
 """
 
 query_categories = """
@@ -333,7 +378,7 @@ async def match_canonical_title(titles: dict) -> str:
 async def run():
     global id
     global imports
-    character_id = 0
+    character_id = 1
 
     # Initialize
     try:
@@ -357,14 +402,14 @@ async def run():
     print(
         f"Total fetched categories: {Fore.RED}{categories['data']['categories']['totalCount']}{Style.RESET_ALL}."
     )
-    for id, category in enumerate(categories["data"]["categories"]["nodes"]):
+    for cid, category in enumerate(categories["data"]["categories"]["nodes"]):
         try:
             parent_id = category["parent"]
             if parent_id is not None:
                 parent_id = int(parent_id.get("id", None))
             await db.execute(
                 query_categories,
-                id,
+                cid,
                 category["title"].get("en", ""),
                 category["slug"],
                 parent_id,
@@ -444,12 +489,6 @@ async def run():
             # Execute the query - Character
             for characters in media._attributes["characters"]["nodes"]:
                 try:
-                    names = ""
-                    names_dict: dict = characters["character"]["names"]["localized"]
-                    for key, value in names_dict.items():
-                      if value:
-                          format_str = '"{0}"=>"{1}",'.format(key, value)
-                          names += format_str
                     await db.execute(
                         query_character,
                         character_id,
@@ -462,10 +501,11 @@ async def run():
                         ),
                         characters["character"]["slug"],
                         json.dumps(characters["character"]["description"]),
-                        await match_canonical_title(names_dict),
+                        await match_canonical_title(characters["character"]["names"]["localized"]),
                         id,
                         "anime",
-                        json.dumps(names)
+                        json.dumps(characters["character"]["names"]["localized"]),
+                        json.dumps(await convert_media_images(characters["character"]["image"]))
                     )
                     await db.execute(
                         query_anime_character,
@@ -478,6 +518,32 @@ async def run():
                         datetime.strptime(
                             characters["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
                         ),
+                    )
+                    await db.execute(
+                        query_media_character,
+                        id,
+                        "anime",
+                        character_id,
+                        CharacterRole[characters["role"]].value,
+                        datetime.strptime(
+                            characters["createdAt"], "%Y-%m-%dT%H:%M:%SZ"
+                        ),
+                        datetime.strptime(
+                            characters["updatedAt"], "%Y-%m-%dT%H:%M:%SZ"
+                        ),
+                    )
+                    await db.execute(
+                      query_casting,
+                      character_id,
+                      id,
+                      character_id,
+                      "Producer",
+                      await convert_to_datetime(characters["createdAt"]),
+                      await convert_to_datetime(characters["updatedAt"]),
+                      True,
+                      True,
+                      "En",
+                      "Anime"
                     )
                     character_id += 1
                     characters_added = True
