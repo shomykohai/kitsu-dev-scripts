@@ -3,7 +3,7 @@ import os
 import sys
 import subprocess
 from colorama import Fore, Style
-from urllib import request
+from urllib import request, parse
 from ruamel import yaml
 from shutil import which
 from typing import (
@@ -30,7 +30,9 @@ def parse_args() -> None:
         nargs='?', 
         help="Gain the PRIVILEGES! (Or: Set the given user permissions to those of super-admin); Provide the SLUG of your user with no quotes"
     )
-    
+    tools_parser.add_argument("--add-flag", '-ff', type=str, help="Enable a flag from Flipper.")
+    tools_parser.add_argument("--create-user", '-c', type=str, help="Create a user account with 'test' as password. Use only for if registrations don't work.")
+
 
 
     args = parser.parse_args()
@@ -50,7 +52,13 @@ def parse_args() -> None:
     if hasattr(args, 'gain_super_admin'):
         if args.gain_super_admin is not None:
             gain_admin_powers(args.gain_super_admin, args.dev_path)
-            return
+    if hasattr(args, 'add_flag'):
+        if args.add_flag is not None:
+            enable_flipper_flag(args.add_flag, args.dev_path)
+    if hasattr(args, 'create_user'):
+        if args.create_user is not None:
+            create_account(args.create_user, args.dev_path)
+
 
 def check_valid_folder(dir: str) -> Optional[str]:
     # First check if the folder exists
@@ -80,6 +88,27 @@ def gain_admin_powers(user: str, dev_env: str) -> None:
     print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Command executed. If you see {Fore.CYAN}\"UPDATE 1\"{Fore.GREEN}, you now have the POWERS!{Style.RESET_ALL}")
 
 
+def enable_flipper_flag(flag: str, dev_env: str) -> None:
+    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Enabling {flag} flag!{Style.RESET_ALL}")
+    rails_console = subprocess.Popen(['bin/rails', 'runner', f'\"Flipper[:{flag}].enable\"'], cwd=dev_env)
+    rails_console.wait()
+
+
+def create_account(username: str, dev_env: str) -> None:
+    headers = {"Content-Type":"application/vnd.api+json"}
+    payload = {
+    "data": {
+        "attributes": {
+        "email": f"{username}@kitsu.dev",
+        "name": username,
+        "password": "test"
+        },
+        "type": "users"
+        }
+    }
+    data = parse.urlencode(payload).encode()
+    req = request.Request("http://kitsu.localhost:42069/api/edge/users", data=data, headers=headers)
+
 
 def setup(path: str, should_seed: bool = False) -> None:
     cwd = path
@@ -96,7 +125,12 @@ def setup(path: str, should_seed: bool = False) -> None:
     # Also check if git is installed so we can clone the repos
     if which("git") is None:
         sys.exit(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.RED}Cannot continue without a valid git installation. Please install git before running the script{Style.RESET_ALL}")
-    else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Git was found.{Style.RESET_ALL}\n")
+    else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Git was found.{Style.RESET_ALL}")
+
+    # Also check if git is installed so we can clone the repos
+    if which("yarn") is None:
+        sys.exit(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.RED}Yarn is not installed. Please install yarn before running the script{Style.RESET_ALL}")
+    else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Yarn was found.{Style.RESET_ALL}\n")
 
     # Now clone the kitsu-tools repo
     gitclone = subprocess.Popen(['git', 'clone', "https://github.com/hummingbird-me/kitsu-tools.git", f"{cwd}/kitsu-tools"])
@@ -113,20 +147,30 @@ def setup(path: str, should_seed: bool = False) -> None:
     # Replace only if the typesense image is wrong
     if contents["services"]["typesense"]["image"] == "typesense:0.25.0.rc54":
         contents["services"]["typesense"]["image"] = "typesense/typesense:0.25.0.rc54"
+        print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Fixed typesense image.{Style.RESET_ALL}\n")
 
     # Then dump the changes
     with open(f"{cwd}/kitsu-tools/docker-compose.yml", 'w') as f:
         yamlparser.dump(contents, f)
     
-    # Clone the server
+    # # Clone the server
+    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Cloning server.{Style.RESET_ALL}\n")
     gitclone = subprocess.Popen(['git', 'clone', "https://github.com/hummingbird-me/kitsu-server.git", f"{cwd}/kitsu-tools/server"])
     gitclone.wait()
 
-    # Then the client with already applied changes
+    # # Then the client with already applied changes
+    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Cloning client (from {Fore.CYAN}ShomyKohai/kitsu-web@the-future{Fore.GREEN}).{Style.RESET_ALL}\n")
     gitclone = subprocess.Popen(['git', 'clone', '-b', 'the-future', "https://github.com/ShomyKohai/kitsu-web.git", f"{cwd}/kitsu-tools/client"])
     gitclone.wait()
 
+    # Before building the environment, for some reason the kitsu-web won't start until the
+    # node-modules folder is generated, so we run yarn install before building with bin/build
+    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Running yarn on client.{Style.RESET_ALL}\n")
+    yarn = subprocess.Popen([f'yarn', 'install'], cwd=f"{cwd}/kitsu-tools/client")
+    yarn.wait() 
+
     # Build the environment!
+    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Finally we build!.{Style.RESET_ALL}\n")
     docker_comp = subprocess.Popen([f'{cwd}/kitsu-tools/bin/build'])
     docker_comp.wait()
 
@@ -147,23 +191,34 @@ def setup(path: str, should_seed: bool = False) -> None:
         print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.CYAN}Downloading the DB dump, please wait for the download to complete and {Fore.RED}do not{Fore.CYAN} interrupt the process.{Style.RESET_ALL}")
         request.urlretrieve(KITSU_DB_DUMP, f"{KITSU_TOOLS_DIR}/anime.sql")
         print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Download completed! Now we'll import it, please wait..{Style.RESET_ALL}\n")
+        
         # And import it
         # Instead of using the provided bin/seed, we will directly call docker compose exec 
         # So we don't get "the input device is not a TTY" error message!
         
+        # Before seeding we drop the schema manually
+        dockercommand = "docker compose exec -T -i postgres psql --username=kitsu_development --host=postgres -d kitsu_development --command"
+        dockercommand = dockercommand.split()
+        dockercommand.append("DROP SCHEMA public CASCADE;CREATE SCHEMA public;") # Append the query as an unique list element
+
+        docker_comp = subprocess.Popen(dockercommand, cwd=KITSU_TOOLS_DIR)
+        docker_comp.wait()
+
         # Use a string since it's faster for me than writing all that stuff into a list 
         # The -T parameter disable TTY, see https://docs.docker.com/engine/reference/commandline/compose_exec/
         # Also we only seed the kitsu_development DB 
-        dockercommand = "docker compose exec -T -i postgres psql --username=kitsu_development --host=postgres kitsu_development < {KITSU_TOOLS_DIR}/anime.sql"
-
+        dockercommand = "docker compose exec -T -i postgres psql --username=kitsu_development --host=postgres kitsu_development"
+        
+        # Open the DB dump as a file and pass it to sdtin
         # Set the cwd to the kitsu-tools one so we're sure that the postgres container is found
-        docker_comp = subprocess.Popen(dockercommand.split(), cwd=KITSU_TOOLS_DIR)
-        docker_comp.wait()
+        with open(f"{KITSU_TOOLS_DIR}/anime.sql", 'r') as f:
+            docker_comp = subprocess.Popen(dockercommand.split(), cwd=KITSU_TOOLS_DIR, stdin=f)
+            docker_comp.wait()
 
         # And run the migrations
-        rake = subprocess.Popen([f'{KITSU_TOOLS_DIR}/bin/rake'], 'db:migrate')
+        rake = subprocess.Popen([f'{KITSU_TOOLS_DIR}/bin/rake', 'db:migrate'])
         rake.wait()
-        rake = subprocess.Popen([f'{KITSU_TOOLS_DIR}/bin/rake'], 'chewy:reset') # Reindex DB
+        rake = subprocess.Popen([f'{KITSU_TOOLS_DIR}/bin/rake', 'chewy:reset']) # Reindex DB
         rake.wait()
 
         # After importing, we'll delete the DB dump since it's not used anymore and to free up space
@@ -175,6 +230,7 @@ def setup(path: str, should_seed: bool = False) -> None:
     # First we enable registrations in the server so it's possible to create an account from the web page
     print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Now we enable registrations in the server!{Style.RESET_ALL}")
     rails_console = subprocess.Popen([f'{cwd}/kitsu-tools/bin/rails', 'runner', '\"Flipper[:registration].enable\"'])
+    rails_console.wait()
 
     print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Setup completed!{Style.RESET_ALL}")
 
