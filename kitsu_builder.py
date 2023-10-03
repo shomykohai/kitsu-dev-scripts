@@ -127,7 +127,7 @@ def setup(path: str, should_seed: bool = False) -> None:
         sys.exit(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.RED}Cannot continue without a valid git installation. Please install git before running the script{Style.RESET_ALL}")
     else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Git was found.{Style.RESET_ALL}")
 
-    # Also check if git is installed so we can clone the repos
+    # Finally check if yarn is installed so that we can build kitsu-web
     if which("yarn") is None:
         sys.exit(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.RED}Yarn is not installed. Please install yarn before running the script{Style.RESET_ALL}")
     else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Yarn was found.{Style.RESET_ALL}\n")
