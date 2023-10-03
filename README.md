@@ -6,4 +6,4 @@
 
 * Anime Import **––** A (now deprecated) script that fills up your dev-env database with the data from Kitsu GraphQL API.
 
-* Kitsu Builder (soon) **––** A script that will simplify the building of your dev env by automatically taking care of bugs and issues you may find using the official [kitsu-tools](https://github.com/hummingbird-me/kitsu-tools) repo.
+* Kitsu Builder **––** An easy yet powerful script that simplifies the building process of your dev env by automatically taking care of bugs and issues you may find using the official [kitsu-tools](https://github.com/hummingbird-me/kitsu-tools) repo.
