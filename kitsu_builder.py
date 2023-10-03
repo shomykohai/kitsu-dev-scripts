@@ -75,7 +75,7 @@ def check_valid_folder(dir: str) -> Optional[str]:
 
 def gain_admin_powers(user: str, dev_env: str) -> None:
     # Define the query
-    query = f"UPDATE users SET permissions=7 WHERE slug='{user}';"
+    query = f"UPDATE users SET permissions=7, title='Staff' WHERE slug='{user}';"
     
     command = f""
     psql = ["docker", "compose", "exec", "-T", "-i", "postgres", "psql", "--username=kitsu_development", "--host=postgres", "-d", "kitsu_development", "--command", query]
