@@ -133,7 +133,7 @@ def setup(path: str, should_seed: bool = False) -> None:
     else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Yarn was found.{Style.RESET_ALL}\n")
 
     # Now clone the kitsu-tools repo
-    gitclone = subprocess.Popen(['git', 'clone', "https://github.com/hummingbird-me/kitsu-tools.git", f"{cwd}/kitsu-tools"])
+    gitclone = subprocess.Popen(['git', 'clone', '--depth', '1', "https://github.com/hummingbird-me/kitsu-tools.git", f"{cwd}/kitsu-tools"])
     gitclone.wait()
 
     # Now apply changes to the kitsu-tools docker-compose.yml file to use the correct typesense image
