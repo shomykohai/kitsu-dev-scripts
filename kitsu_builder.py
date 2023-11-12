@@ -178,9 +178,9 @@ def setup(path: str, should_seed: bool = False) -> None:
         sys.exit(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.RED}Docker is not installed. Please install it and run the script again.{Style.RESET_ALL}")
     else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Docker was found.{Style.RESET_ALL}")
 
-    if which("docker-compose") is None:
-        sys.exit(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.RED}Docker-compose is not installed. Please install it and run the script again.{Style.RESET_ALL}")
-    else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Docker-compose was found.{Style.RESET_ALL}")
+    if which("docker-compose-plugin") is None:
+        sys.exit(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.RED}Docker compose V2 is not installed. Please install it and run the script again.{Style.RESET_ALL}")
+    else: print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Docker compose V2 was found.{Style.RESET_ALL}")
     
     # Also check if git is installed so we can clone the repos
     if which("git") is None:
