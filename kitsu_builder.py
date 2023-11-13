@@ -239,7 +239,7 @@ def setup(path: str, should_seed: bool = False) -> None:
     docker_comp.wait()
 
     # HACK: We run db:setup on rails to be sure that we don't encounter an issue when running migrations
-    rails_console = subprocess.Popen(["bin/rails", "db:setup"], cwd=cwd)  
+    rails_console = subprocess.Popen(["bin/rails", "db:setup"], cwd=f'{cwd}/kitsu-tools')  
 
     # Now we seed the database if the user chose to
     if should_seed: seed_database(cwd)
