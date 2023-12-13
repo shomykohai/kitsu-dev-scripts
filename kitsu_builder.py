@@ -7,7 +7,7 @@ import subprocess
 from colorama import Fore, Style
 from getpass import getuser
 from ruamel import yaml
-from shutil import which
+from shutil import which, copyfileobj
 from tqdm import tqdm
 from typing import (
     Optional
@@ -158,7 +158,11 @@ def seed_database(dev_env: str) -> None:
     # Open the DB dump as a file and pass it to sdtin
     # Set the cwd to the kitsu-tools one so we're sure that the postgres container is found
     with gzip.open(f"{KITSU_TOOLS_DIR}/latest.sql.gz", 'rb') as f:
-        docker_comp = subprocess.Popen(dockercommand.split(), cwd=KITSU_TOOLS_DIR, stdin=f.read())
+        with open(f"{KITSU_TOOLS_DIR}/latest.sql", 'wb') as dump:
+            copyfileobj(f, dump)
+    os.remove(f"{KITSU_TOOLS_DIR}/latest.sql.gz")
+    with open(f"{KITSU_TOOLS_DIR}/latest.sql", 'r') as f:
+        docker_comp = subprocess.Popen(dockercommand.split(), cwd=KITSU_TOOLS_DIR, stdin=f)
         docker_comp.wait()
 
     # And run the migrations
@@ -168,7 +172,7 @@ def seed_database(dev_env: str) -> None:
     rake.wait()
 
     # After importing, we'll delete the DB dump since it's not used anymore and to free up space
-    os.remove(f"{KITSU_TOOLS_DIR}/anime.sql")
+    os.remove(f"{KITSU_TOOLS_DIR}/latest.sql")
     print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Database imported (anime.sql > kitsu_development)!{Style.RESET_ALL}\n")
 
 def setup(path: str, should_seed: bool = False) -> None:
