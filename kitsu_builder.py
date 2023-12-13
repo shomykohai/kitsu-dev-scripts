@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import os
 import requests
 import sys
@@ -129,7 +130,7 @@ def seed_database(dev_env: str) -> None:
     print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.CYAN}Downloading the DB dump, please wait for the download to complete and {Fore.RED}do not{Fore.CYAN} interrupt the process.{Style.RESET_ALL}")
     # Code from https://stackoverflow.com/questions/56795227/how-do-i-make-progress-bar-while-downloading-file-in-python
     with requests.get(KITSU_DB_DUMP, stream=True) as r:
-        with open(f"{KITSU_TOOLS_DIR}/anime.sql", 'wb') as f:
+        with open(f"{KITSU_TOOLS_DIR}/latest.sql.gz", 'wb') as f:
             pbar = tqdm(total=int(r.headers['Content-Length']))
             for chunk in r.iter_content(chunk_size=8192):
                 if chunk:
@@ -156,8 +157,8 @@ def seed_database(dev_env: str) -> None:
     
     # Open the DB dump as a file and pass it to sdtin
     # Set the cwd to the kitsu-tools one so we're sure that the postgres container is found
-    with open(f"{KITSU_TOOLS_DIR}/anime.sql", 'r') as f:
-        docker_comp = subprocess.Popen(dockercommand.split(), cwd=KITSU_TOOLS_DIR, stdin=f)
+    with gzip.open(f"{KITSU_TOOLS_DIR}/latest.sql.gz", 'rb') as f:
+        docker_comp = subprocess.Popen(dockercommand.split(), cwd=KITSU_TOOLS_DIR, stdin=f.read())
         docker_comp.wait()
 
     # And run the migrations
