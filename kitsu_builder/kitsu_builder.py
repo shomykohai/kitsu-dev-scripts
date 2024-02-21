@@ -7,7 +7,7 @@ import subprocess
 from colorama import Fore, Style
 from getpass import getuser
 from ruamel import yaml
-from shutil import which, copyfileobj
+from shutil import which, copyfileobj, rmtree
 from tqdm import tqdm
 from typing import (
     Optional
@@ -24,6 +24,7 @@ def parse_args() -> None:
     setup_parser = subparser.add_parser("setup", help="Setup your dev-environment")
     setup_parser.add_argument('--path', '-p', type=check_valid_folder, help="The path where the dev env will be set-up", required=True)
     setup_parser.add_argument('--seed', '-s', action="store_true", help="If the Database should be seeded")
+    setup_parser.add_argument('--use-react', '-rc', action="store_true", help="If the react branch should be installed instead")
     
     tools_parser = subparser.add_parser("tools", help="Useful commands that may become handy in any moment! Must already have a dev env before using any of the tools.")
     # Give admin privileges to the user
@@ -48,8 +49,9 @@ def parse_args() -> None:
 
     # Call the setup function
     if hasattr(args, "path"):
-        if args.path is not None: 
-            setup(args.path, args.seed)
+        if args.path is not None:
+            use_react: bool = False
+            setup(args.path, args.seed, use_react)
             return
     
     # Tools
@@ -175,7 +177,36 @@ def seed_database(dev_env: str) -> None:
     os.remove(f"{KITSU_TOOLS_DIR}/latest.sql")
     print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Database imported (anime.sql > kitsu_development)!{Style.RESET_ALL}\n")
 
-def setup(path: str, should_seed: bool = False) -> None:
+
+def setup_web_branch(path: str, react: bool = False) -> None:
+    if os.path.exists(f'{path}/kitsu-tools/web/'):
+        rmtree(f'{path}/kitsu-tools/web', ignore_errors=True)
+    with open(f"{path}/kitsu-tools/docker-compose.yml", 'r') as f:
+        yamlparser = yaml.YAML()
+        # Preserve the quotes etc.
+        yamlparser.preserve_quotes = True
+
+        contents = yamlparser.load(f)
+    if react:
+        print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Cloning client (from {Fore.CYAN}hummingbird-me/kitsu-web{Fore.GREEN}).{Style.RESET_ALL}\n")
+        gitclone = subprocess.Popen(['git', 'clone', '-b', 'the-future', "https://github.com/hummingbird-me/kitsu-web.git", f"{path}/kitsu-tools/web"])
+        gitclone.wait()
+        contents["services"]["web"]["tmpfs"] = ["/opt/kitsu/client/node_modules/.vite/cache"]
+    else:
+        print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Cloning client (from {Fore.CYAN}ShomyKohai/kitsu-web@the-future{Fore.GREEN}).{Style.RESET_ALL}\n")
+        gitclone = subprocess.Popen(['git', 'clone', '-b', 'the-future', "https://github.com/ShomyKohai/kitsu-web.git", f"{path}/kitsu-tools/web"])
+        gitclone.wait()
+
+        # Before building the environment, for some reason the kitsu-web won't start until the
+        # node-modules folder is generated, so we run yarn install before building with bin/build
+        print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Running yarn on client.{Style.RESET_ALL}\n")
+        yarn = subprocess.Popen([f'yarn', 'install'], cwd=f"{path}/kitsu-tools/web")
+        yarn.wait() 
+
+        contents["services"]["web"]["tmpfs"] = ["/opt/kitsu/client/tmp"]
+
+
+def setup(path: str, should_seed: bool = False, setup_react: bool = False) -> None:
     cwd = path
     
     # Check if Docker & Docker Compose are installed
@@ -223,16 +254,13 @@ def setup(path: str, should_seed: bool = False) -> None:
     gitclone = subprocess.Popen(['git', 'clone', "https://github.com/hummingbird-me/kitsu-server.git", f"{cwd}/kitsu-tools/server"])
     gitclone.wait()
 
-    # Then the client with already applied changes
-    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Cloning client (from {Fore.CYAN}ShomyKohai/kitsu-web@the-future{Fore.GREEN}).{Style.RESET_ALL}\n")
-    gitclone = subprocess.Popen(['git', 'clone', '-b', 'the-future', "https://github.com/ShomyKohai/kitsu-web.git", f"{cwd}/kitsu-tools/client"])
-    gitclone.wait()
+    # Then setup the client
+    setup_web_branch(cwd, setup_react)
 
-    # Before building the environment, for some reason the kitsu-web won't start until the
-    # node-modules folder is generated, so we run yarn install before building with bin/build
-    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Running yarn on client.{Style.RESET_ALL}\n")
-    yarn = subprocess.Popen([f'yarn', 'install'], cwd=f"{cwd}/kitsu-tools/client")
-    yarn.wait() 
+    # Fix the server not booting because of prometheus (Temporary solution)
+    print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Fixing server!.{Style.RESET_ALL}\n")
+    fix_server = subprocess.Popen(['git', 'reset', '--hard', '99cc3e9'], cwd=f"{cwd}/kitsu-tools/server")
+    fix_server.wait()
 
     # Build the environment!
     print(f"{Fore.YELLOW}Kitsu Builder {Fore.WHITE}> {Fore.GREEN}Finally we build!.{Style.RESET_ALL}\n")

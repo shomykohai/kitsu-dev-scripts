@@ -1,0 +1,4 @@
+requests
+tdqm
+ruamel.yaml
+colorama
